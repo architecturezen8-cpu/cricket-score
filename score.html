@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Premium Broadcast Scoreboard V21</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800;900&display=swap"
+        rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #060512;
+            --gold: #F8B400;
+            --text-white: #ffffff;
+            --pill-bg: #000000;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background: transparent;
+            font-family: 'Montserrat', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            overflow: hidden;
+        }
+
+        .scoreboard-container {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            width: 100%;
+            max-width: 1900px;
+            margin-bottom: 45px;
+            filter: drop-shadow(0px 15px 25px rgba(0, 0, 0, 0.8));
+        }
+
+        .scoreboard-container.is-special {
+            align-items: center;
+        }
+
+        @keyframes popAnimation {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.15);
+                color: var(--gold);
+                text-shadow: 0 0 10px var(--gold);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .pop-update {
+            display: inline-block;
+            animation: popAnimation 0.4s ease-out;
+        }
+
+        .bg-texture {
+            background-color: #020205;
+            background-image:
+                radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 80%),
+                repeating-linear-gradient(45deg, transparent, transparent 15px, rgba(248, 180, 0, 0.02) 15px, rgba(248, 180, 0, 0.02) 30px),
+                linear-gradient(135deg, #070d2b 0%, #020205 40%, #020205 60%, #171201 100%);
+        }
+
+        .logo-box {
+            position: relative;
+            width: 150px;
+            height: 130px;
+            background: var(--gold);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition:
+                margin 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                width 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                height 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                clip-path 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .logo-inner {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: clip-path 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .logo-inner img {
+            max-width: 80px;
+            max-height: 80px;
+            object-fit: contain;
+            transition: max-width 0.8s ease, max-height 0.8s ease;
+        }
+
+        .logo-box.left {
+            clip-path: polygon(0 0, 120px 0, 150px 65px, 120px 130px, 0 130px);
+            margin-right: -20px;
+        }
+
+        .logo-box.left .logo-inner {
+            clip-path: polygon(2px 2px, 118px 2px, 146px 65px, 118px 128px, 2px 128px);
+        }
+
+        .logo-box.right {
+            clip-path: polygon(30px 0, 150px 0, 150px 130px, 30px 130px, 0 65px);
+            margin-left: -20px;
+        }
+
+        .logo-box.right .logo-inner {
+            clip-path: polygon(32px 2px, 148px 2px, 148px 128px, 32px 128px, 4px 65px);
+        }
+
+        .side-panel {
+            height: 90px;
+            flex: 1;
+            max-width: 620px;
+            border-top: 2px solid var(--gold);
+            border-bottom: 2px solid var(--gold);
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            white-space: nowrap;
+            transition: all 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .bat-panel {
+            padding: 0 45px 0 65px;
+        }
+
+        .batter-row {
+            display: flex;
+            align-items: center;
+            color: var(--text-white);
+            font-size: 20px;
+            font-weight: 800;
+            line-height: 1.6;
+            transition: background-color 0.4s ease;
+            border-radius: 4px;
+        }
+
+        @keyframes strikeHighlight {
+            0% {
+                background: linear-gradient(90deg, rgba(248, 180, 0, 0.4), transparent);
+                transform: translateX(10px);
+            }
+
+            100% {
+                background: transparent;
+                transform: translateX(0);
+            }
+        }
+
+        .batter-row.strike-changed {
+            animation: strikeHighlight 0.6s ease-out forwards;
+        }
+
+        .pointer {
+            color: var(--gold);
+            font-size: 16px;
+            width: 22px;
+            display: inline-block;
+            opacity: 0;
+            transform: translateX(-15px) scale(0.5);
+            transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .pointer.active {
+            opacity: 1;
+            transform: translateX(0) scale(1);
+        }
+
+        .b-name {
+            flex: 1;
+            letter-spacing: 0.5px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            text-transform: uppercase;
+            transition: color 0.4s ease, opacity 0.3s ease, transform 0.4s ease;
+        }
+
+        .b-name.out-text {
+            color: #7a7a7a;
+            text-shadow: none;
+        }
+
+        .b-score {
+            display: flex;
+            gap: 20px;
+            width: 75px;
+            justify-content: flex-end;
+            font-size: 22px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+        }
+
+        .bowl-panel {
+            padding: 0;
+        }
+
+        .view-wrapper {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 0 65px 0 45px;
+            transition: transform 0.6s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.5s ease;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(150px);
+        }
+
+        .view-wrapper.active {
+            transform: translateX(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .view-wrapper.exit-left {
+            transform: translateX(-150px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .bowler-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-white);
+            font-size: 20px;
+            font-weight: 800;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .bowler-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 22px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+        }
+
+        .balls-row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+        }
+
+        .ball {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 1px solid var(--gold);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 900;
+            color: white;
+            background: rgba(0, 0, 0, 0.5);
+            box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.8);
+            transition: 0.3s;
+        }
+
+        .ball.w {
+            background: #ff3333;
+            border-color: #ff3333;
+        }
+
+        .ball.b4,
+        .ball.b6 {
+            background: var(--gold);
+            border-color: var(--gold);
+            color: black;
+            text-shadow: none;
+        }
+
+        .ball.wd,
+        .ball.nb {
+            background: transparent;
+            border-color: var(--gold);
+            color: var(--gold);
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: -0.8px;
+        }
+
+        .ball.dot {
+            background: transparent;
+            border-color: rgba(255, 255, 255, 0.4);
+            color: #ccc;
+            font-size: 18px;
+        }
+
+        .ball.empty {
+            background: transparent;
+            border: 1px dashed rgba(255, 255, 255, 0.3);
+            box-shadow: none;
+        }
+
+        .ball.last-ball {
+            transform: scale(1.12);
+            box-shadow: 0 0 0 2px rgba(248, 180, 0, 0.35), 0 0 14px rgba(248, 180, 0, 0.55);
+        }
+
+        .view-title {
+            font-size: 18px;
+            font-weight: 900;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .view-sub {
+            font-size: 14px;
+            font-weight: 800;
+            color: #ccc;
+            margin-top: 6px;
+            letter-spacing: 1px;
+        }
+
+        .g-text {
+            color: var(--gold);
+        }
+
+        .pred-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            font-weight: 900;
+            color: white;
+            margin-top: 6px;
+        }
+
+        .pred-bar {
+            width: 100%;
+            height: 8px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 5px;
+            display: flex;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        .pred-left {
+            background: var(--gold);
+            height: 100%;
+            transition: width 0.8s ease;
+        }
+
+        .pred-right {
+            background: #ffffff;
+            height: 100%;
+            transition: width 0.8s ease;
+        }
+
+        .chase-view-bar {
+            width: 100%;
+            height: 7px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 8px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+        }
+
+        .chase-view-fill {
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.6s ease, background 0.5s ease;
+            width: 0%;
+            background: var(--gold);
+        }
+
+        .chase-view-rates {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            font-size: 12px;
+            font-weight: 800;
+            color: #ccc;
+            letter-spacing: 0.5px;
+        }
+
+        .chase-view-rates b {
+            font-weight: 900;
+        }
+
+        .chase-rate-good {
+            color: #86efac;
+        }
+
+        .chase-rate-bad {
+            color: #fca5a5;
+        }
+
+        .chase-rate-even {
+            color: var(--gold);
+        }
+
+        .center-box {
+            position: relative;
+            width: 540px;
+            height: 130px;
+            background: var(--gold);
+            z-index: 5;
+            margin: 0 -25px;
+            clip-path: polygon(30px 0, 510px 0, 540px 65px, 510px 130px, 30px 130px, 0 65px);
+            flex-shrink: 0;
+            transition:
+                width 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                margin 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                height 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                clip-path 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .center-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            clip-path: polygon(32px 2px, 508px 2px, 536px 65px, 508px 128px, 32px 128px, 4px 65px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-white);
+            padding: 15px;
+            transition:
+                clip-path 0.8s cubic-bezier(0.25, 1, 0.5, 1),
+                padding 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        .normal-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            transition: opacity 0.4s ease;
+            opacity: 1;
+        }
+
+        .normal-content.hide {
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+        }
+
+        .teams-header {
+            font-size: 16px;
+            font-weight: 900;
+            color: var(--gold);
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 6px;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8);
+        }
+
+        .center-main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+        }
+
+        .play-school {
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--text-white);
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+            text-transform: uppercase;
+        }
+
+        .score-pill {
+            background-color: var(--pill-bg);
+            border: 2px solid var(--gold);
+            border-radius: 40px;
+            padding: 6px 35px;
+            font-size: 42px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            box-shadow: 0 5px 10px rgba(0, 0, 0, 0.6);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .overs-text {
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+
+        .overs-text span {
+            font-size: 24px;
+            font-weight: 900;
+            color: var(--gold);
+        }
+
+        .bottom-tag {
+            margin-top: 10px;
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+            color: #ddd;
+        }
+
+        .special-text-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            text-align: center;
+            text-transform: uppercase;
+            padding: 12px 72px;
+            font-family: 'Montserrat', sans-serif;
+            text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.9);
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            box-sizing: border-box;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .special-overlay-content {
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transform-origin: center center;
+            transition: transform 0.25s ease;
+            will-change: transform;
+        }
+
+        .special-overlay-content>* {
+            max-width: 100%;
+        }
+
+        .special-text-overlay>* {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 auto;
+            text-align: center !important;
+            box-sizing: border-box;
+        }
+
+        .special-text-overlay .result-card-wrap,
+        .special-text-overlay .result-card-winner {
+            width: 100%;
+            justify-content: center !important;
+            align-items: center !important;
+            text-align: center !important;
+        }
+
+        .special-text-overlay .result-card-kicker,
+        .special-text-overlay .result-card-team,
+        .special-text-overlay .result-card-line,
+        .special-text-overlay .result-card-sub {
+            width: 100%;
+            text-align: center !important;
+        }
+
+        .scoreboard-container.is-special .special-text-overlay [style*="white-space: nowrap"] {
+            white-space: normal !important;
+        }
+
+        .special-text-overlay.plain-text {
+            font-size: 34px;
+            font-weight: 900;
+            color: var(--gold);
+            letter-spacing: 1px;
+        }
+
+        .scoreboard-container.is-special .side-panel {
+            max-width: 0;
+            padding-left: 0;
+            padding-right: 0;
+            opacity: 0;
+            border-width: 0;
+            margin: 0;
+        }
+
+        .scoreboard-container.is-special .center-box {
+            width: 1040px;
+            height: 160px;
+            margin-left: -30px;
+            margin-right: -30px;
+            clip-path: polygon(30px 0, calc(100% - 30px) 0, 100% 80px, calc(100% - 30px) 160px, 30px 160px, 0 80px);
+        }
+
+        .scoreboard-container.is-special .center-inner {
+            clip-path: polygon(32px 2px, calc(100% - 32px) 2px, calc(100% - 4px) 80px, calc(100% - 32px) 158px, 32px 158px, 4px 80px);
+            padding: 14px 84px;
+        }
+
+        .scoreboard-container.is-special .logo-box.left {
+            margin-right: 0;
+            width: 178px;
+            height: 160px;
+            clip-path: polygon(0 0, 144px 0, 178px 80px, 144px 160px, 0 160px);
+        }
+
+        .scoreboard-container.is-special .logo-box.left .logo-inner {
+            clip-path: polygon(2px 2px, 142px 2px, 174px 80px, 142px 158px, 2px 158px);
+        }
+
+        .scoreboard-container.is-special .logo-box.right {
+            margin-left: 0;
+            width: 178px;
+            height: 160px;
+            clip-path: polygon(34px 0, 178px 0, 178px 160px, 34px 160px, 0 80px);
+        }
+
+        .scoreboard-container.is-special .logo-box.right .logo-inner {
+            clip-path: polygon(36px 2px, 176px 2px, 176px 158px, 36px 158px, 4px 80px);
+        }
+
+        .scoreboard-container.is-special .logo-inner img {
+            max-width: 96px;
+            max-height: 96px;
+        }
+
+        .scoreboard-container.is-special .special-text-overlay {
+            opacity: 1;
+            transition-delay: 0.6s;
+        }
+
+        .crest-placeholder {
+            font-size: 20px;
+            color: var(--gold);
+            font-weight: 900;
+        }
+
+        @keyframes pulseAlert {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+                color: #ff3333;
+                text-shadow: 0 0 15px red;
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .result-card-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .result-card-kicker {
+            font-size: 14px;
+            font-weight: 900;
+            color: #ddd;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        .result-card-winner {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            justify-content: center;
+        }
+
+        .result-card-team {
+            font-size: 40px;
+            font-weight: 900;
+            color: var(--gold);
+            text-transform: uppercase;
+            line-height: 1;
+        }
+
+        .result-card-line {
+            font-size: 22px;
+            font-weight: 900;
+            color: #ffffff;
+            text-transform: uppercase;
+        }
+
+        .result-card-sub {
+            font-size: 14px;
+            font-weight: 800;
+            color: #d4d4d8;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .conn-popup {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.5);
+            color: #86efac;
+            padding: 10px 30px;
+            border-radius: 99px;
+            font-family: 'Montserrat', sans-serif;
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            backdrop-filter: blur(10px);
+            z-index: 9999;
+            transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .conn-popup.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="conn-popup" id="connPopup">✅ CONNECTED TO SCOREBOARD</div>
+
+    <div class="scoreboard-container" id="scoreboard">
+
+        <div class="logo-box left" id="logoLeft">
+            <div class="logo-inner bg-texture" id="logo1Box">
+                <div class="crest-placeholder" id="batFlagLogo">STC</div>
+            </div>
+        </div>
+
+        <div class="side-panel bat-panel bg-texture" id="batPanel">
+            <div class="batter-row" id="rowB1">
+                <span class="pointer" id="p1">▶</span>
+                <span class="b-name" id="b1Name">--</span>
+                <div class="b-score"><span id="b1Runs">0</span><span id="b1Balls">0</span></div>
+            </div>
+            <div class="batter-row" id="rowB2">
+                <span class="pointer" id="p2">▶</span>
+                <span class="b-name" id="b2Name">--</span>
+                <div class="b-score"><span id="b2Runs">0</span><span id="b2Balls">0</span></div>
+            </div>
+        </div>
+
+        <div class="center-box" id="centerBox">
+            <div class="center-inner bg-texture">
+                <div class="normal-content" id="normalContent">
+                    <div class="teams-header" id="teamsHeader">STC VS GSC</div>
+                    <div class="center-main">
+                        <div class="play-school" id="playSchool">STC</div>
+                        <div class="score-pill">
+                            <span id="mainRuns">0</span> - <span id="mainWkts">0</span>
+                        </div>
+                        <div class="overs-text">
+                            <span id="oversText">0.0</span> OVERS
+                            <span id="fhOverlay"
+                                style="display:none; color:#ff4444; font-weight:900; margin-left:15px; font-size:16px; animation: pulseAlert 0.8s infinite;">💧
+                                FREE HIT</span>
+                        </div>
+                    </div>
+                    <div class="bottom-tag" id="statusText">LIVE MATCH</div>
+                </div>
+
+                <div class="special-text-overlay plain-text" id="specialOverlay">
+                    <div class="special-overlay-content" id="specialOverlayContent">--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="side-panel bowl-panel bg-texture" id="bowlPanel">
+            <div class="view-wrapper active" id="view-bowler">
+                <div class="bowler-row">
+                    <span class="bowler-name" id="bowlName">--</span>
+                    <div class="bowler-stats"><span id="bowlFigs">0-0 0.0</span></div>
+                </div>
+                <div class="balls-row" id="ballsRowContainer"></div>
+            </div>
+
+            <div class="view-wrapper" id="view-target">
+                <div class="view-title" id="tarTextMain">STC NEEDS <span class="g-text">0</span> RUNS</div>
+                <div class="view-sub" id="tarTextSub">RRR: <span class="g-text">0.00</span> • CRR: <span
+                        class="g-text">0.00</span></div>
+            </div>
+
+            <div class="view-wrapper" id="view-partner">
+                <div class="view-title">CURRENT PARTNERSHIP</div>
+                <div class="view-sub"><span class="g-text" id="partRuns" style="font-size:22px;">0</span> RUNS (<span
+                        id="partBalls">0</span> BALLS)</div>
+            </div>
+
+            <div class="view-wrapper" id="view-predictor">
+                <div class="view-title">WIN PREDICTOR</div>
+                <div class="pred-header">
+                    <span id="predT1Name">STC <span class="g-text" id="predT1Val">50%</span></span>
+                    <span id="predT2Name"><span style="color:#ccc;" id="predT2Val">50%</span> GSC</span>
+                </div>
+                <div class="pred-bar">
+                    <div class="pred-left" id="predBarFill" style="width: 50%;"></div>
+                    <div class="pred-right"></div>
+                </div>
+            </div>
+
+            <div class="view-wrapper" id="view-upcoming">
+                <div class="view-title">UPCOMING BATTER</div>
+                <div class="view-sub">
+                    <span class="g-text" id="upcomingBatterName" style="font-size:22px;">--</span>
+                </div>
+            </div>
+
+            <div class="view-wrapper" id="view-chase">
+                <div class="view-title" id="chaseViewTitle">TARGET PROGRESS</div>
+                <div class="chase-view-bar">
+                    <div class="chase-view-fill" id="chaseViewFill"></div>
+                </div>
+                <div class="chase-view-rates">
+                    <span>CRR <b id="chaseCrr" class="chase-rate-even">0.00</b></span>
+                    <span id="chaseScoreLabel" style="font-weight:900; color:var(--gold);">0 / 0</span>
+                    <span>RRR <b id="chaseRrr" class="chase-rate-even">0.00</b></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="logo-box right" id="logoRight">
+            <div class="logo-inner bg-texture" id="logo2Box">
+                <div class="crest-placeholder" id="bowlFlagLogo">GSC</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function updateCounter(elId, newV) {
+            const el = document.getElementById(elId);
+            const curV = parseInt(el.innerText) || 0;
+            const tarV = parseInt(newV) || 0;
+            if (curV !== tarV) {
+                el.classList.remove('pop-update');
+                void el.offsetWidth;
+                el.classList.add('pop-update');
+
+                let start = null;
+                const duration = 400;
+                const step = (ts) => {
+                    if (!start) start = ts;
+                    const progress = Math.min((ts - start) / duration, 1);
+                    const easeOut = progress * (2 - progress);
+                    el.innerText = Math.floor(curV + (tarV - curV) * easeOut);
+                    if (progress < 1) window.requestAnimationFrame(step);
+                    else el.innerText = tarV;
+                };
+                window.requestAnimationFrame(step);
+            }
+        }
+
+        function updateText(elId, newV) {
+            const el = document.getElementById(elId);
+            if (el.innerText !== String(newV)) {
+                el.innerText = newV;
+                el.classList.remove('pop-update');
+                void el.offsetWidth;
+                el.classList.add('pop-update');
+            }
+        }
+
+        function processBatterName(id, currentNameData, isOutData, prevNameVar) {
+            const el = document.getElementById(id);
+
+            if (isOutData) el.classList.add('out-text');
+            else el.classList.remove('out-text');
+
+            if (prevNameVar !== currentNameData) {
+                if (prevNameVar === null) {
+                    el.innerText = currentNameData;
+                    return currentNameData;
+                }
+
+                el.style.opacity = 0;
+                el.style.transform = "translateY(15px)";
+
+                setTimeout(() => {
+                    el.innerText = currentNameData;
+                    el.classList.remove('out-text');
+                    el.style.transform = "translateY(-15px)";
+                    setTimeout(() => {
+                        el.style.opacity = 1;
+                        el.style.transform = "translateY(0)";
+                    }, 50);
+                }, 300);
+
+                return currentNameData;
+            }
+
+            return prevNameVar;
+        }
+
+        function renderLogo(bId, fId, fTxt, src) {
+            const box = document.getElementById(bId);
+            if (src && src.length > 5) box.innerHTML = `<img src="${src}">`;
+            else box.innerHTML = `<div class="crest-placeholder" id="${fId}">${fTxt}</div>`;
+        }
+
+        function getBallsFromOversValue(o) {
+            o = parseFloat(o) || 0;
+            return Math.floor(o) * 6 + Math.round((o % 1) * 10);
+        }
+
+        function fitSpecialOverlay() {
+            const overlay = document.getElementById('specialOverlay');
+            const content = document.getElementById('specialOverlayContent');
+            if (!overlay || !content) return;
+
+            content.style.transform = 'scale(1)';
+
+            requestAnimationFrame(() => {
+                const availW = overlay.clientWidth - 16;
+                const availH = overlay.clientHeight - 16;
+
+                const rect = content.getBoundingClientRect();
+                let scale = Math.min(
+                    availW / Math.max(rect.width, 1),
+                    availH / Math.max(rect.height, 1),
+                    1
+                );
+
+                if (!isFinite(scale) || scale <= 0) scale = 1;
+                content.style.transform = `scale(${scale})`;
+            });
+        }
+
+        function scheduleFitSpecialOverlay() {
+            fitSpecialOverlay();
+            setTimeout(fitSpecialOverlay, 50);
+            setTimeout(fitSpecialOverlay, 300);
+            setTimeout(fitSpecialOverlay, 850);
+        }
+
+        window.addEventListener('resize', () => {
+            if (document.getElementById('scoreboard').classList.contains('is-special')) {
+                scheduleFitSpecialOverlay();
+            }
+        });
+
+        function updateChaseCarousel(data) {
+            const target = parseInt(data.target) || 0;
+            const runs = parseInt(data.runs) || 0;
+            const overs = parseFloat(data.overs) || 0;
+            const totalOvers = parseInt(data.totOvers) || 20;
+            const crr = parseFloat(data.crr) || 0;
+
+            const fill = document.getElementById('chaseViewFill');
+            const crrEl = document.getElementById('chaseCrr');
+            const rrrEl = document.getElementById('chaseRrr');
+            const title = document.getElementById('chaseViewTitle');
+            const scoreLabel = document.getElementById('chaseScoreLabel');
+
+            if (target <= 0) return;
+
+            const need = Math.max(0, target - runs);
+            const bowledBalls = getBallsFromOversValue(overs);
+            const totalBalls = totalOvers * 6;
+            const ballsRem = Math.max(0, totalBalls - bowledBalls);
+            const rrr = (need > 0 && ballsRem > 0) ? (need / (ballsRem / 6)) : 0;
+
+            const progressPct = Math.min((runs / Math.max(1, target - 1)) * 100, 100);
+            fill.style.width = `${progressPct}%`;
+
+            if (runs >= target) {
+                fill.style.background = 'linear-gradient(90deg, #10b981, #34d399)';
+                title.innerText = 'TARGET CHASED ✅';
+            } else if (progressPct > 70) {
+                fill.style.background = 'linear-gradient(90deg, #10b981, #6ee7b7)';
+                title.innerText = 'TARGET PROGRESS';
+            } else if (progressPct > 40) {
+                fill.style.background = 'linear-gradient(90deg, var(--gold), #fde047)';
+                title.innerText = 'TARGET PROGRESS';
+            } else {
+                fill.style.background = 'linear-gradient(90deg, #ef4444, #fca5a5)';
+                title.innerText = 'TARGET PROGRESS';
+            }
+
+            scoreLabel.innerText = `${runs} / ${target - 1}`;
+            crrEl.innerText = crr.toFixed(2);
+            rrrEl.innerText = rrr.toFixed(2);
+
+            crrEl.className = '';
+            rrrEl.className = '';
+
+            if (crr > rrr) {
+                crrEl.classList.add('chase-rate-good');
+                rrrEl.classList.add('chase-rate-bad');
+            } else if (rrr > crr) {
+                crrEl.classList.add('chase-rate-bad');
+                rrrEl.classList.add('chase-rate-good');
+            } else {
+                crrEl.classList.add('chase-rate-even');
+                rrrEl.classList.add('chase-rate-even');
+            }
+        }
+
+        let currentView = 'view-bowler';
+        let carouselTimer = null;
+        let lastForceTrig = "";
+        let autoCarouselEnabled = true;
+        let rotateViews = [];
+        let viewIndex = 0;
+
+        function switchView(targetViewId, holdTime = 7000) {
+            if (currentView === targetViewId) return;
+
+            const outEl = document.getElementById(currentView);
+            const inEl = document.getElementById(targetViewId);
+
+            if (outEl) {
+                outEl.classList.remove('active');
+                outEl.classList.add('exit-left');
+            }
+            if (inEl) {
+                inEl.classList.remove('exit-left');
+                inEl.classList.add('active');
+            }
+
+            setTimeout(() => {
+                if (outEl) outEl.classList.remove('exit-left');
+            }, 600);
+
+            currentView = targetViewId;
+
+            if (targetViewId !== 'view-bowler') {
+                clearTimeout(carouselTimer);
+                carouselTimer = setTimeout(() => {
+                    switchView('view-bowler');
+                }, holdTime);
+            }
+        }
+
+        setInterval(() => {
+            if (autoCarouselEnabled && currentView === 'view-bowler' && !autoMilestoneActive && rotateViews.length > 0) {
+                switchView(rotateViews[viewIndex], 6000);
+                viewIndex = (viewIndex + 1) % rotateViews.length;
+            }
+        }, 20000);
+
+        let prevBat1Runs = -1, prevBat2Runs = -1;
+        let autoMilestoneActive = false, autoMilestoneTimer = null;
+
+        function triggerAutoMilestone(htmlContent) {
+            autoMilestoneActive = true;
+            document.getElementById('normalContent').classList.add('hide');
+            document.getElementById('scoreboard').classList.add('is-special');
+
+            let overlay = document.getElementById('specialOverlay');
+            let overlayContent = document.getElementById('specialOverlayContent');
+            overlay.classList.remove('plain-text');
+            if (!htmlContent.includes('<div')) overlay.classList.add('plain-text');
+            overlayContent.innerHTML = htmlContent;
+            scheduleFitSpecialOverlay();
+
+            clearTimeout(autoMilestoneTimer);
+            autoMilestoneTimer = setTimeout(() => {
+                restoreFromSpecial();
+            }, 8000);
+        }
+
+        function restoreFromSpecial() {
+            setTimeout(() => {
+                document.getElementById('scoreboard').classList.remove('is-special');
+                setTimeout(() => {
+                    document.getElementById('normalContent').classList.remove('hide');
+                    autoMilestoneActive = false;
+                }, 100);
+            }, 300);
+        }
+
+        const MY_SECRET_ID = "my_match_999";
+        const client = new Paho.MQTT.Client("broker.emqx.io", 8084, "/mqtt", "score_overlay_v21_" + Date.now());
+        let firstMsgReceived = false;
+
+        function connectMQTT() {
+            client.connect({
+                useSSL: true,
+                onSuccess: () => {
+                    client.subscribe("cricket_live/" + MY_SECRET_ID);
+                },
+                onFailure: () => {
+                    setTimeout(connectMQTT, 3000);
+                }
+            });
+        }
+
+        client.onConnectionLost = () => {
+            setTimeout(connectMQTT, 3000);
+        };
+
+        connectMQTT();
+
+        let prevStrikerId = null, prevB1Name = null, prevB2Name = null;
+
+        client.onMessageArrived = (message) => {
+            try {
+                const data = JSON.parse(message.payloadString);
+
+                if (!firstMsgReceived) {
+                    firstMsgReceived = true;
+                    let popup = document.getElementById('connPopup');
+                    popup.classList.add('show');
+                    setTimeout(() => {
+                        popup.classList.remove('show');
+                    }, 3000);
+                }
+
+                autoCarouselEnabled = data.autoCarousel;
+                document.getElementById('fhOverlay').style.display = data.isFreeHit ? 'inline-block' : 'none';
+
+                rotateViews = [];
+                if (data.enTarget) rotateViews.push('view-target');
+                if (data.enPart) rotateViews.push('view-partner');
+                if (data.enPred) rotateViews.push('view-predictor');
+                if ((parseInt(data.target) || 0) > 0) rotateViews.push('view-chase');
+
+                if (data.forceView && data.forceView !== lastForceTrig) {
+                    lastForceTrig = data.forceView;
+                    switchView(data.forceView.split('_')[0], 7000);
+                }
+
+                if (data.showUpcomingBatter && data.upcomingBatterName) {
+                    document.getElementById('upcomingBatterName').innerText = data.upcomingBatterName;
+                    const upDelay = Math.max(2200, (parseInt(data.wicketDelay) || 1500) + 500);
+                    switchView('view-upcoming', upDelay);
+                }
+
+                let b1R = parseInt(data.bat1.runs) || 0;
+                let b2R = parseInt(data.bat2.runs) || 0;
+
+                function generateMilestoneCard(playerData) {
+                    let b = parseInt(playerData.balls) || 0;
+                    let sr = b > 0 ? ((parseInt(playerData.runs) / b) * 100).toFixed(2) : "0.00";
+
+                    return `
+                    <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; width:100%; gap:8px;">
+                        <div style="display:flex; align-items:baseline; justify-content:center; gap:16px; text-shadow:2px 2px 10px rgba(0,0,0,0.9); white-space:nowrap;">
+                            <span style="font-size:36px; font-weight:900; color:#fff; text-transform:uppercase; letter-spacing:2px;">${playerData.name}</span>
+                            <span style="font-size:52px; font-weight:900; color:var(--gold); line-height:0.8;">${playerData.runs}<span style="font-size:26px; color:#fff;">*</span></span>
+                            <span style="font-size:22px; font-weight:800; color:#ddd;">(${playerData.balls})</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:20px; font-size:16px; font-weight:800; color:#fff; background:linear-gradient(90deg,transparent,rgba(0,0,0,0.8),transparent); padding:6px 40px; letter-spacing:1px; border-top:1px solid rgba(248,180,0,0.3); border-bottom:1px solid rgba(248,180,0,0.3);">
+                            <div>Sixes: <span style="color:var(--gold); font-size:22px; margin-left:4px;">${playerData.sixes}</span></div>
+                            <div style="color:rgba(255,255,255,0.3);">|</div>
+                            <div>Fours: <span style="color:var(--gold); font-size:22px; margin-left:4px;">${playerData.fours}</span></div>
+                            <div style="color:rgba(255,255,255,0.3);">|</div>
+                            <div>Strike Rate: <span style="color:var(--gold); font-size:22px; margin-left:4px;">${sr}</span></div>
+                        </div>
+                    </div>`;
+                }
+
+                if (prevBat1Runs !== -1) {
+                    let j = b1R - prevBat1Runs;
+                    if (j > 0 && j <= 10) {
+                        if (b1R >= 100 && prevBat1Runs < 100) triggerAutoMilestone(generateMilestoneCard(data.bat1));
+                        else if (b1R >= 50 && prevBat1Runs < 50) triggerAutoMilestone(generateMilestoneCard(data.bat1));
+                    }
+                }
+
+                if (prevBat2Runs !== -1) {
+                    let j = b2R - prevBat2Runs;
+                    if (j > 0 && j <= 10) {
+                        if (b2R >= 100 && prevBat2Runs < 100) triggerAutoMilestone(generateMilestoneCard(data.bat2));
+                        else if (b2R >= 50 && prevBat2Runs < 50) triggerAutoMilestone(generateMilestoneCard(data.bat2));
+                    }
+                }
+
+                prevBat1Runs = b1R;
+                prevBat2Runs = b2R;
+
+                if (data.isSpecial && !autoMilestoneActive) {
+                    document.getElementById('normalContent').classList.add('hide');
+                    document.getElementById('scoreboard').classList.add('is-special');
+                    let overlay = document.getElementById('specialOverlay');
+                    let overlayContent = document.getElementById('specialOverlayContent');
+                    if (data.specialText.includes('<div')) overlay.classList.remove('plain-text');
+                    else overlay.classList.add('plain-text');
+                    overlayContent.innerHTML = data.specialText;
+                    scheduleFitSpecialOverlay();
+                } else if (!data.isSpecial && !autoMilestoneActive && document.getElementById('scoreboard').classList.contains('is-special')) {
+                    restoreFromSpecial();
+                }
+
+                document.getElementById('teamsHeader').innerText = `${data.batFlag} VS ${data.bowlFlag}`;
+                document.getElementById('playSchool').innerText = data.batFlag;
+                document.getElementById('statusText').innerText = `CRR: ${data.crr}` + (data.status ? ` • ${data.status}` : "");
+
+                updateChaseCarousel(data);
+
+                let target = parseInt(data.target) || 0;
+                if (target > 0) {
+                    let runsNeeded = target - (parseInt(data.runs) || 0);
+                    let bowled = getBallsFromOversValue(data.overs);
+                    let ballsRem = Math.max(0, (Math.floor(parseFloat(data.totOvers) * 6)) - bowled);
+                    let rrr = (runsNeeded > 0 && ballsRem > 0) ? (runsNeeded / (ballsRem / 6)).toFixed(2) : "0.00";
+
+                    if (runsNeeded > 0) {
+                        document.getElementById('tarTextMain').innerHTML = `${data.batFlag} NEEDS <span class="g-text">${runsNeeded}</span> RUNS IN <span class="g-text">${ballsRem}</span> BALLS`;
+                        document.getElementById('tarTextSub').innerHTML = `RRR: <span class="g-text">${rrr}</span> • CRR: <span class="g-text">${parseFloat(data.crr || 0).toFixed(2)}</span>`;
+                    } else {
+                        document.getElementById('tarTextMain').innerHTML = `${data.batFlag} WON THE MATCH`;
+                        document.getElementById('tarTextSub').innerHTML = `TARGET WAS: <span class="g-text">${target}</span>`;
+                    }
+                }
+
+                updateCounter('partRuns', data.partRuns || 0);
+                updateCounter('partBalls', data.partBalls || 0);
+
+                let t1p = parseInt(data.winProb) || 50;
+                document.getElementById('predT1Name').innerHTML = `${data.batFlag} <span class="g-text">${t1p}%</span>`;
+                document.getElementById('predT2Name').innerHTML = `<span style="color:#ccc;">${100 - t1p}%</span> ${data.bowlFlag}`;
+                document.getElementById('predBarFill').style.width = `${t1p}%`;
+
+                prevB1Name = processBatterName('b1Name', data.bat1.name, data.bat1.isOut, prevB1Name);
+                prevB2Name = processBatterName('b2Name', data.bat2.name, data.bat2.isOut, prevB2Name);
+
+                if (data.striker === '1') {
+                    document.getElementById('p1').classList.add('active');
+                    document.getElementById('p2').classList.remove('active');
+                } else {
+                    document.getElementById('p1').classList.remove('active');
+                    document.getElementById('p2').classList.add('active');
+                }
+
+                if (prevStrikerId !== null && data.striker !== prevStrikerId) {
+                    let row = document.getElementById(data.striker === "1" ? "rowB1" : "rowB2");
+                    row.classList.remove('strike-changed');
+                    void row.offsetWidth;
+                    row.classList.add('strike-changed');
+                }
+                prevStrikerId = data.striker;
+
+                document.getElementById('bowlName').innerText = data.bowler.name;
+                renderLogo('logo1Box', 'batFlagLogo', data.batFlag, data.t1Logo);
+                renderLogo('logo2Box', 'bowlFlagLogo', data.bowlFlag, data.t2Logo);
+
+                updateText('oversText', data.overs);
+                updateText('bowlFigs', data.bowler.figs);
+                updateCounter('mainRuns', data.runs);
+                updateCounter('mainWkts', data.wkts);
+                updateCounter('b1Runs', data.bat1.runs);
+                updateCounter('b1Balls', data.bat1.balls);
+                updateCounter('b2Runs', data.bat2.runs);
+                updateCounter('b2Balls', data.bat2.balls);
+
+                const ballsArray = (data.thisOver || "").trim().split(" ").filter(Boolean);
+                const container = document.getElementById('ballsRowContainer');
+                container.innerHTML = "";
+                let legalCount = 0;
+                const lastBallIndex = ballsArray.length - 1;
+
+                ballsArray.forEach((val, idx) => {
+                    let div = document.createElement('div');
+                    div.className = 'ball pop-update';
+
+                    let vUp = val.toUpperCase();
+                    if (vUp === '0') vUp = '•';
+                    div.innerText = vUp;
+
+                    if (vUp.includes('W') && !vUp.includes('WD')) div.classList.add('w');
+                    else if (vUp.includes('NB')) div.classList.add('nb');
+                    else if (vUp.includes('WD')) div.classList.add('wd');
+                    else if (vUp.includes('4') || vUp.includes('6')) div.classList.add('b4');
+                    else if (vUp === '•') div.classList.add('dot');
+
+                    if (idx === lastBallIndex) div.classList.add('last-ball');
+                    if (!vUp.includes('NB') && !vUp.includes('WD')) legalCount++;
+
+                    container.appendChild(div);
+                });
+
+                for (let i = 0; i < 6 - legalCount; i++) {
+                    let d = document.createElement('div');
+                    d.className = 'ball empty';
+                    container.appendChild(d);
+                }
+
+            } catch (e) {
+                console.error(e);
+            }
+        };
+    </script>
+</body>
+
+</html>
